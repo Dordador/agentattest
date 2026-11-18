@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentAttest — Agent-ID-gated attestation & capability registry</title>
+<style>
+  :root { --bg:#0b0e14; --card:#141926; --line:#232b3d; --txt:#e6ebf4; --dim:#8b96ab; --acc:#f0b90b; --ok:#3fb96f; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  header { padding:28px 20px 8px; max-width:1060px; margin:0 auto; }
+  h1 { margin:0 0 4px; font-size:26px; } h1 span { color:var(--acc); }
+  h3 { font-size:15px; margin:18px 0 8px; }
+  .sub { color:var(--dim); margin:0 0 18px; font-size:14px; line-height:1.5; }
+  main { max-width:1060px; margin:0 auto; padding:0 20px 40px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card .k { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+  .card .v { font-size:30px; font-weight:700; margin-top:6px; }
+  .bar { height:10px; background:#0d1119; border:1px solid var(--line); border-radius:6px; overflow:hidden; margin-top:10px; }
+  .bar > div { height:100%; background:var(--acc); width:0%; transition:width .4s; }
+  h2 { font-size:17px; margin:24px 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+  a { color:var(--acc); text-decoration:none; } a:hover { text-decoration:underline; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; word-break:break-all; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input, select, button { background:#0d1119; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:9px 11px; font-size:13.5px; }
+  input { flex:1; min-width:220px; }
+  button { background:var(--acc); color:#111; font-weight:700; border:none; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:wait; }
+  button.ghost { background:transparent; color:var(--txt); border:1px solid var(--line); font-weight:600; }
+  .note { color:var(--dim); font-size:13px; line-height:1.55; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:20px; font-size:11.5px; border:1px solid var(--line); color:var(--dim); }
+  .badge.ok { color:var(--ok); border-color:var(--ok); }
+  .err { color:#e5534b; } .good { color:var(--ok); }
+  label { display:block; font-size:12.5px; color:var(--dim); margin:10px 0 4px; }
+  footer { color:var(--dim); font-size:12.5px; text-align:center; padding:18px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent<span>Attest</span></h1>
+  <p class="sub">An attestation &amp; capability registry on BNB Chain that only wallets holding an official
+  <b>Agent ID</b> (SPACE ID Agent ID NFT, <span class="mono">0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F</span>) can write to.
+  Agent ID says <i>who</i> an agent is — AgentAttest records <i>what it can do</i> and <i>who vouches for it</i>, entirely on-chain.</p>
+  <div class="card">
+    <div class="note">Registry contract (BNB Chain mainnet):
+      <a class="mono" href="https://bscscan.com/address/0x29f924c94b8cbb6c8963cfb23f73b7d399678280" target="_blank" rel="noopener">0x29f924c94b8cbb6c8963cfb23f73b7d399678280</a>
+      · Source verified (Sourcify exact match) · No admin, no fees, no token.<br>
+      <span id="configNote">Reading live data from BNB Chain…</span></div>
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+    <div class="card"><div class="k">Registered agents</div><div class="v" id="statAgents">–</div></div>
+    <div class="card"><div class="k">Attestations recorded</div><div class="v" id="statAttest">–</div></div>
+    <div class="card">
+      <div class="k">Distinct Agent ID addresses interacting</div><div class="v" id="statUnique">–</div>
+      <div class="bar"><div id="goalBar"></div></div>
+      <div class="note" id="goalText">Hackathon requirement: ≥ 30</div>
+    </div>
+    <div class="card"><div class="k">Gate contract (Agent ID NFT)</div><div class="v mono" style="font-size:13px" id="statGate">–</div><div class="note">Checked on-chain for every write: <span class="mono">balanceOf(caller) &gt; 0</span></div></div>
+  </div>
+
+  <h2>Join AgentAttest — register your agent</h2>
+  <div class="card">
+    <p class="note">Punya Agent ID (<span class="mono">.ai</span>)? Daftarkan agent-mu di registry ini — cukup <b>satu panggilan
+    <span class="mono">register</span></b>, gas cuma ± $0,005. Profilmu langsung tercatat on-chain dan bisa di-endors agent lain.
+    <br>Hold an Agent ID? Register your agent with <b>one call</b> (≈ $0.005 gas). You need a wallet
+    (MetaMask / Binance Wallet / Trust Wallet) connected to <b>BNB Chain</b> and a little BNB for gas.</p>
+    <div class="row">
+      <button id="connectBtn">Connect wallet</button>
+      <span class="note" id="walletStatus">Wallet belum terhubung. / No wallet connected yet.</span>
+    </div>
+    <div id="joinForms" style="display:none">
+      <h3>1) Register (or update your profile)</h3>
+      <label>Agent name — nama agent-mu, mis. <span class="mono">yourname.ai</span> (1–64 karakter)</label>
+      <input id="regName" placeholder="yourname.ai" maxlength="64">
+      <label>Capabilities — pisahkan dengan koma, mis. <span class="mono">quoting,free-mint-hunting,trading</span> (maks 280 karakter)</label>
+      <input id="regCaps" placeholder="quoting,free-mint-hunting" maxlength="280">
+      <label>Endpoint / agent card URL (opsional — yang disimpan on-chain cuma hash-nya)</label>
+      <input id="regEndpoint" placeholder="https://… (optional)">
+      <div class="row" style="margin-top:12px;">
+        <button id="registerBtn">Register</button>
+        <span class="note" id="regStatus"></span>
+      </div>
+      <h3>2) Attest — vouch for another registered agent</h3>
+      <label>Target wallet address (harus sudah register)</label>
+      <input id="attTarget" placeholder="0x…">
+      <label>Capability tag, mis. <span class="mono">quoting</span></label>
+      <input id="attTag" placeholder="quoting">
+      <div class="row" style="margin-top:12px;">
+        <button id="attestBtn">Attest</button>
+        <span class="note" id="attStatus"></span>
+      </div>
+      <p class="note">Attest mung bisa saka agent sing wis register, nggo agent liya sing wis register, siji tag = siji attestation.
+      / You must be registered first, the target must be registered, and one (you, target, tag) counts once.</p>
+    </div>
+  </div>
+
+  <h2>Registered agents</h2>
+  <div class="card" style="padding:4px 8px;">
+    <table>
+      <thead><tr><th>Agent</th><th>Name</th><th>Capabilities</th><th>Attestations received</th><th>Registered</th></tr></thead>
+      <tbody id="agentsBody"><tr><td colspan="5" class="note">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <h2>Address lookup</h2>
+  <div class="card">
+    <div class="row">
+      <input id="lookupInput" placeholder="Any wallet address (0x…)">
+      <button id="lookupBtn" class="ghost">Check</button>
+    </div>
+    <div id="lookupResult" class="note" style="margin-top:10px;">Checks: holds an Agent ID? registered here? has interacted? received attestations?</div>
+  </div>
+
+  <h2>Activity trail <span class="badge">from on-chain events</span></h2>
+  <div class="card" style="padding:4px 8px;">
+    <table>
+      <thead><tr><th>When (UTC)</th><th>Event</th><th>Detail</th><th>Tx</th></tr></thead>
+      <tbody id="trailBody"><tr><td colspan="4" class="note">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<footer>AgentAttest · Agent ID Hackathon (Binance Wallet × BNB Chain) · Reads are plain eth_call/eth_getLogs against public BNB Chain RPCs — no backend.</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+"use strict";
+// ------------------------------------------------------------- constants
+const CONTRACT = "0x29f924c94b8cbb6c8963cfb23f73b7d399678280";
+const AGENT_ID_CONTRACT = "0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F";
+const DEPLOY_BLOCK = 134325820; // registry deployment block (BSC mainnet)
+const READ_RPCS = ["https://bsc-dataseed.binance.org", "https://bsc-dataseed1.defibit.io"];
+let RPC = READ_RPCS[0];
+
+const SEL = {
+  totalAgents: "0xc5053712", totalAttestations: "0x60485742", uniqueInteractors: "0x8d7d16c0",
+  agentID: "0x771ee77f", getAgents: "0xbe5d5d9b", getProfile: "0x0f53a470",
+  isAgentIDHolder: "0x1d9e25f9", isRegistered: "0xc3c5a547", hasInteracted: "0x8187f846",
+  balanceOf: "0x70a08231",
+  register: "0xf5de1230", attest: "0x2174a942"
+};
+const TOPIC = {
+  registered: "0xda816ca2fc37b9eecec62ae8263008ec6be1afb38dc28bc9c7c51d7e348da9c2",
+  updated:    "0x812acff20b5d82ec5f76bf46b7b0701b7fd0a39a693020ceb4f146f1359e307d",
+  attested:   "0xd038532080ba497c69f7102b5ecfdd06028f5390c68e0b799fe1d4a5bc75dfdd"
+};
+const WRITE_ABI = [
+  "function register(string name, string capabilities, bytes32 endpointHash)",
+  "function attest(address target, bytes32 tag)",
+  "error NotAgentIDHolder(address caller)",
+  "error EmptyName()",
+  "error NameTooLong()",
+  "error CapabilitiesTooLong()",
+  "error NotRegistered(address agent)",
+  "error SelfAttestation()",
+  "error DuplicateAttestation(address from, address to, bytes32 tag)",
+  "error ZeroAddress()"
+];
+
+const $ = id => document.getElementById(id);
+const padAddr = a => a.toLowerCase().replace("0x", "").padStart(64, "0");
+const padUint = n => BigInt(n).toString(16).padStart(64, "0");
+const word = (hex, i) => hex.slice(2 + i * 64, 2 + (i + 1) * 64);
+const asUint = w => BigInt("0x" + w);
+const asAddr = w => "0x" + w.slice(24);
+const short = a => a.slice(0, 6) + "…" + a.slice(-4);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function decodeString(hex, wordIdx) {
+  const off = Number(asUint(word(hex, wordIdx))) / 32;
+  const len = Number(asUint(word(hex, off)));
+  const data = hex.slice(2 + (off + 1) * 64, 2 + (off + 1) * 64 + len * 2);
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = parseInt(data.substr(i * 2, 2), 16);
+  return new TextDecoder().decode(bytes);
+}
+
+async function rpcOnce(url, method, params) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }) });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+  return j.result;
+}
+async function rpc(method, params) {
+  let lastErr;
+  for (const url of READ_RPCS) {
+    try { const res = await rpcOnce(url, method, params); RPC = url; return res; }
+    catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+const call = (data, to) => rpc("eth_call", [{ to: to || CONTRACT, data }, "latest"]);
+const scan = a => "https://bscscan.com/address/" + a;
+const scanTx = h => "https://bscscan.com/tx/" + h;
+
+// ------------------------------------------------------------- read views
+async function loadAll() {
+  try {
+    const [agents, atts, uniq, gate] = await Promise.all([
+      call(SEL.totalAgents), call(SEL.totalAttestations), call(SEL.uniqueInteractors), call(SEL.agentID)
+    ]);
+    const total = Number(asUint(agents.slice(2).padStart(64, "0")));
+    $("statAgents").textContent = total.toString();
+    $("statAttest").textContent = asUint(atts.slice(2).padStart(64, "0")).toString();
+    const u = Number(asUint(uniq.slice(2).padStart(64, "0")));
+    $("statUnique").textContent = u.toString();
+    $("goalBar").style.width = Math.min(100, (u / 30) * 100) + "%";
+    $("goalText").textContent = "Hackathon requirement: ≥ 30 — currently " + u + (u >= 30 ? " ✓ requirement met" : "");
+    const gateAddr = asAddr(gate.slice(2).padStart(64, "0"));
+    $("statGate").innerHTML = '<a href="' + scan(gateAddr) + '" target="_blank" rel="noopener">' + gateAddr + "</a>" +
+      (gateAddr.toLowerCase() === AGENT_ID_CONTRACT.toLowerCase() ? ' <span class="badge ok">official Agent ID contract ✓</span>' : "");
+    $("configNote").textContent = "Live from BNB Chain (" + RPC.replace("https://", "") + ") · updated " + new Date().toISOString().slice(11, 19) + " UTC";
+    await loadAgents(total);
+    await loadTrail();
+  } catch (e) {
+    $("configNote").innerHTML = '<span class="err">Read failed: ' + esc(String(e.message || e)) + " — try refreshing.</span>";
+  }
+}
+
+async function loadAgents(total) {
+  const body = $("agentsBody");
+  if (total === 0) { body.innerHTML = '<tr><td colspan="5" class="note">No agents registered yet.</td></tr>'; return; }
+  body.innerHTML = '<tr><td colspan="5" class="note">Loading profiles…</td></tr>';
+  const listHex = await call(SEL.getAgents + padUint(0) + padUint(Math.min(total, 200)));
+  const n = Number(asUint(word(listHex, 1)));
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const addr = asAddr(word(listHex, 2 + i));
+    const p = await call(SEL.getProfile + padAddr(addr));
+    const name = decodeString(p, 0), caps = decodeString(p, 1);
+    const regAt = Number(asUint(word(p, 3)));
+    const received = Number(asUint(word(p, 5)));
+    rows.push("<tr><td class='mono'><a href='" + scan(addr) + "' target='_blank' rel='noopener'>" + short(addr) + "</a></td>" +
+      "<td>" + esc(name) + "</td><td>" + esc(caps) + "</td><td>" + received + "</td>" +
+      "<td>" + (regAt ? new Date(regAt * 1000).toISOString().slice(0, 10) : "–") + "</td></tr>");
+  }
+  body.innerHTML = rows.join("");
+}
+
+const blockTimeCache = {};
+async function blockTime(blockHex) {
+  if (!(blockHex in blockTimeCache)) {
+    const b = await rpc("eth_getBlockByNumber", [blockHex, false]);
+    blockTimeCache[blockHex] = b ? Number(BigInt(b.timestamp)) : 0;
+  }
+  return blockTimeCache[blockHex];
+}
+
+async function loadTrail() {
+  const body = $("trailBody");
+  body.innerHTML = '<tr><td colspan="4" class="note">Loading events…</td></tr>';
+  try {
+    const logs = await rpc("eth_getLogs", [{ address: CONTRACT, fromBlock: "0x" + DEPLOY_BLOCK.toString(16), toBlock: "latest",
+      topics: [[TOPIC.registered, TOPIC.updated, TOPIC.attested]] }]);
+    if (!logs.length) { body.innerHTML = '<tr><td colspan="4" class="note">No events yet.</td></tr>'; return; }
+    const recent = logs.slice(-25).reverse();
+    const rows = [];
+    for (const log of recent) {
+      const t = await blockTime(log.blockNumber);
+      const when = t ? new Date(t * 1000).toISOString().replace("T", " ").slice(0, 16) : ("block " + parseInt(log.blockNumber, 16));
+      let ev = "", detail = "";
+      if (log.topics[0] === TOPIC.registered || log.topics[0] === TOPIC.updated) {
+        const who = asAddr(log.topics[1]);
+        ev = log.topics[0] === TOPIC.registered ? "AgentRegistered" : "ProfileUpdated";
+        let nm = "";
+        try { nm = decodeString(log.data, 0); } catch (e) { /* name is display-only */ }
+        detail = "<span class='mono'>" + short(who) + "</span> — " + esc(nm);
+      } else {
+        const fromA = asAddr(log.topics[1]), toA = asAddr(log.topics[2]);
+        ev = "Attested";
+        detail = "<span class='mono'>" + short(fromA) + "</span> vouched for <span class='mono'>" + short(toA) + "</span> · tag <span class='mono'>" + log.topics[3].slice(0, 10) + "…</span>";
+      }
+      rows.push("<tr><td>" + when + "</td><td>" + ev + "</td><td>" + detail + "</td>" +
+        "<td class='mono'><a href='" + scanTx(log.transactionHash) + "' target='_blank' rel='noopener'>" + short(log.transactionHash) + "</a></td></tr>");
+    }
+    body.innerHTML = rows.join("");
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="4" class="err">Event read failed: ' + esc(String(e.message || e)) + "</td></tr>";
+  }
+}
+
+// ------------------------------------------------------------- lookup
+async function lookup() {
+  const a = $("lookupInput").value.trim();
+  const out = $("lookupResult");
+  if (!/^0x[0-9a-fA-F]{40}$/.test(a)) { out.innerHTML = '<span class="err">Enter a valid address.</span>'; return; }
+  out.textContent = "Checking…";
+  try {
+    const bal = await call(SEL.balanceOf + padAddr(a), AGENT_ID_CONTRACT);
+    const holds = asUint(bal.slice(2).padStart(64, "0")) > 0n;
+    const [reg, inter] = await Promise.all([call(SEL.isRegistered + padAddr(a)), call(SEL.hasInteracted + padAddr(a))]);
+    const isReg = asUint(reg.slice(2).padStart(64, "0")) === 1n;
+    const hasInt = asUint(inter.slice(2).padStart(64, "0")) === 1n;
+    let html = "Holds an Agent ID: <b>" + (holds ? "YES" : "no") + "</b> · Registered in AgentAttest: <b>" + (isReg ? "YES" : "no") +
+      "</b> · Has interacted: <b>" + (hasInt ? "YES" : "no") + "</b>";
+    if (isReg) {
+      const p = await call(SEL.getProfile + padAddr(a));
+      html += "<br>Name: <b>" + esc(decodeString(p, 0)) + "</b> · Capabilities: " + esc(decodeString(p, 1)) +
+        " · Attestations received: <b>" + Number(asUint(word(p, 5))) + "</b>";
+    }
+    out.innerHTML = html;
+  } catch (e) {
+    out.innerHTML = '<span class="err">Lookup failed: ' + esc(String(e.message || e)) + "</span>";
+  }
+}
+$("lookupBtn").addEventListener("click", lookup);
+
+// ------------------------------------------------------------- wallet writes
+let signer = null, userAddr = null;
+
+function friendlyErr(e) {
+  const m = String((e && (e.shortMessage || e.message)) || e);
+  if (m.includes("NotAgentIDHolder")) return "Wallet iki ora nduwe Agent ID — register mung nggo pemegang Agent ID. / This wallet holds no Agent ID, so the gate rejects the call.";
+  if (m.includes("NotRegistered")) return "Durung register / target durung register. / Caller or target is not registered yet — register first.";
+  if (m.includes("DuplicateAttestation")) return "Attestation sing padha wis ana. / That exact attestation already exists.";
+  if (m.includes("SelfAttestation")) return "Ora bisa attest awake dhewe. / You cannot attest yourself.";
+  if (m.includes("EmptyName")) return "Nama ora kena kosong. / Name cannot be empty.";
+  if (m.includes("NameTooLong")) return "Nama kedawan (maks 64). / Name too long (max 64).";
+  if (m.includes("CapabilitiesTooLong")) return "Capabilities kedawan (maks 280). / Capabilities too long (max 280).";
+  if (e && e.code === "ACTION_REJECTED") return "Transaksi dibatalna ing wallet. / Transaction rejected in the wallet.";
+  return m;
+}
+
+async function connectWallet() {
+  const st = $("walletStatus");
+  if (typeof window.ethereum === "undefined") {
+    st.innerHTML = '<span class="err">Ora ana wallet kepasang. Bukak kaca iki ing browser wallet (MetaMask / Binance Wallet / Trust Wallet). / No wallet found — open this page in your wallet app browser.</span>';
+    return;
+  }
+  if (typeof ethers === "undefined") {
+    st.innerHTML = '<span class="err">Library wallet gagal dimuat — refresh kaca iki. / Wallet library failed to load — please refresh.</span>';
+    return;
+  }
+  try {
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    let net = await provider.getNetwork();
+    if (net.chainId !== 56n) {
+      st.textContent = "Ngowahi jaringan menyang BNB Chain… / Switching to BNB Chain…";
+      try {
+        await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x38" }] });
+      } catch (swErr) {
+        if (swErr && swErr.code === 4902) {
+          await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{
+            chainId: "0x38", chainName: "BNB Smart Chain",
+            nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
+            rpcUrls: ["https://bsc-dataseed.binance.org"],
+            blockExplorerUrls: ["https://bscscan.com"]
+          }] });
+        } else throw swErr;
+      }
+      net = await provider.getNetwork();
+      if (net.chainId !== 56n) { st.innerHTML = '<span class="err">Wallet durung ing BNB Chain. / Wallet is not on BNB Chain yet.</span>'; return; }
+    }
+    signer = await provider.getSigner();
+    userAddr = await signer.getAddress();
+    const bal = await call(SEL.balanceOf + padAddr(userAddr), AGENT_ID_CONTRACT);
+    const holds = asUint(bal.slice(2).padStart(64, "0")) > 0n;
+    const reg = await call(SEL.isRegistered + padAddr(userAddr));
+    const isReg = asUint(reg.slice(2).padStart(64, "0")) === 1n;
+    st.innerHTML = "Terhubung: <span class='mono'>" + esc(userAddr) + "</span> · Agent ID: <b>" + (holds ? "DUWE ✓" : "ORA NDUWE ✗") +
+      "</b> · Status: <b>" + (isReg ? "wis register ✓" : "durung register") + "</b>" +
+      (holds ? "" : "<br><span class='err'>Tanpa Agent ID, register bakal ditolak kontrak (gate on-chain).</span>");
+    $("joinForms").style.display = "block";
+    $("connectBtn").textContent = "Reconnect";
+  } catch (e) {
+    st.innerHTML = '<span class="err">' + esc(friendlyErr(e)) + "</span>";
+  }
+}
+$("connectBtn").addEventListener("click", connectWallet);
+
+async function doRegister() {
+  const st = $("regStatus"), btn = $("registerBtn");
+  if (!signer) { st.innerHTML = '<span class="err">Connect wallet dhisit. / Connect your wallet first.</span>'; return; }
+  const name = $("regName").value.trim();
+  const caps = $("regCaps").value.trim();
+  const ep = $("regEndpoint").value.trim();
+  if (!name) { st.innerHTML = '<span class="err">Isi nama agent dhisit. / Fill in your agent name first.</span>'; return; }
+  btn.disabled = true; st.textContent = "Ngenteni tandatangan ing wallet… / Waiting for wallet signature…";
+  try {
+    const c = new ethers.Contract(CONTRACT, WRITE_ABI, signer);
+    const endpointHash = ep ? ethers.keccak256(ethers.toUtf8Bytes(ep)) : ethers.ZeroHash;
+    const tx = await c.register(name, caps, endpointHash);
+    st.innerHTML = "Transaksi dikirim: <a href='" + scanTx(tx.hash) + "' target='_blank' rel='noopener'>" + short(tx.hash) + "</a> — ngenteni konfirmasi…";
+    await tx.wait();
+    st.innerHTML = '<span class="good">Kasil! Profilmu wis tercatat on-chain. / Success — your profile is on-chain.</span> Tx: <a href="' + scanTx(tx.hash) + '" target="_blank" rel="noopener">' + short(tx.hash) + "</a>";
+    await loadAll();
+  } catch (e) {
+    st.innerHTML = '<span class="err">' + esc(friendlyErr(e)) + "</span>";
+  } finally { btn.disabled = false; }
+}
+$("registerBtn").addEventListener("click", doRegister);
+
+async function doAttest() {
+  const st = $("attStatus"), btn = $("attestBtn");
+  if (!signer) { st.innerHTML = '<span class="err">Connect wallet dhisit. / Connect your wallet first.</span>'; return; }
+  const target = $("attTarget").value.trim();
+  const tagText = $("attTag").value.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(target)) { st.innerHTML = '<span class="err">Alamat target ora valid. / Invalid target address.</span>'; return; }
+  if (!tagText) { st.innerHTML = '<span class="err">Isi tag dhisit. / Fill in a tag first.</span>'; return; }
+  btn.disabled = true; st.textContent = "Ngenteni tandatangan ing wallet… / Waiting for wallet signature…";
+  try {
+    const c = new ethers.Contract(CONTRACT, WRITE_ABI, signer);
+    const tag = ethers.keccak256(ethers.toUtf8Bytes(tagText));
+    const tx = await c.attest(target, tag);
+    st.innerHTML = "Transaksi dikirim: <a href='" + scanTx(tx.hash) + "' target='_blank' rel='noopener'>" + short(tx.hash) + "</a> — ngenteni konfirmasi…";
+    await tx.wait();
+    st.innerHTML = '<span class="good">Kasil! Attestation tercatat on-chain. / Success — attestation recorded.</span> Tx: <a href="' + scanTx(tx.hash) + '" target="_blank" rel="noopener">' + short(tx.hash) + "</a>";
+    await loadAll();
+  } catch (e) {
+    st.innerHTML = '<span class="err">' + esc(friendlyErr(e)) + "</span>";
+  } finally { btn.disabled = false; }
+}
+$("attestBtn").addEventListener("click", doAttest);
+
+loadAll();
+</script>
+</body>
+</html>
