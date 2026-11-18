@@ -118,16 +118,16 @@
     <div id="lookupResult" class="note" style="margin-top:10px;">Checks: holds an Agent ID? registered here? has interacted? received attestations?</div>
   </div>
 
-  <h2>Activity trail <span class="badge">from on-chain events</span></h2>
+  <h2>Activity trail <span class="badge">read from on-chain state</span></h2>
   <div class="card" style="padding:4px 8px;">
     <table>
-      <thead><tr><th>When (UTC)</th><th>Event</th><th>Detail</th><th>Tx</th></tr></thead>
+      <thead><tr><th>When (UTC)</th><th>Event</th><th>Detail</th><th>Link</th></tr></thead>
       <tbody id="trailBody"><tr><td colspan="4" class="note">Loading…</td></tr></tbody>
     </table>
   </div>
 </main>
 
-<footer>AgentAttest · Agent ID Hackathon (Binance Wallet × BNB Chain) · Reads are plain eth_call/eth_getLogs against public BNB Chain RPCs — no backend.</footer>
+<footer>AgentAttest · Agent ID Hackathon (Binance Wallet × BNB Chain) · Reads are plain eth_call against public BNB Chain RPCs — no backend.</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
 <script>
@@ -141,15 +141,10 @@ let RPC = READ_RPCS[0];
 
 const SEL = {
   totalAgents: "0xc5053712", totalAttestations: "0x60485742", uniqueInteractors: "0x8d7d16c0",
-  agentID: "0x771ee77f", getAgents: "0xbe5d5d9b", getProfile: "0x0f53a470",
+  agentID: "0x771ee77f", getAgents: "0xbe5d5d9b", getProfile: "0x0f53a470", getAttestation: "0x29be4db2",
   isAgentIDHolder: "0x1d9e25f9", isRegistered: "0xc3c5a547", hasInteracted: "0x8187f846",
   balanceOf: "0x70a08231",
   register: "0xf5de1230", attest: "0x2174a942"
-};
-const TOPIC = {
-  registered: "0xda816ca2fc37b9eecec62ae8263008ec6be1afb38dc28bc9c7c51d7e348da9c2",
-  updated:    "0x812acff20b5d82ec5f76bf46b7b0701b7fd0a39a693020ceb4f146f1359e307d",
-  attested:   "0xd038532080ba497c69f7102b5ecfdd06028f5390c68e0b799fe1d4a5bc75dfdd"
 };
 const WRITE_ABI = [
   "function register(string name, string capabilities, bytes32 endpointHash)",
@@ -218,8 +213,9 @@ async function loadAll() {
     $("statGate").innerHTML = '<a href="' + scan(gateAddr) + '" target="_blank" rel="noopener">' + gateAddr + "</a>" +
       (gateAddr.toLowerCase() === AGENT_ID_CONTRACT.toLowerCase() ? ' <span class="badge ok">official Agent ID contract ✓</span>' : "");
     $("configNote").textContent = "Live from BNB Chain (" + RPC.replace("https://", "") + ") · updated " + new Date().toISOString().slice(11, 19) + " UTC";
+    const totalAtts = Number(asUint(atts.slice(2).padStart(64, "0")));
     await loadAgents(total);
-    await loadTrail();
+    await loadTrail(total, totalAtts);
   } catch (e) {
     $("configNote").innerHTML = '<span class="err">Read failed: ' + esc(String(e.message || e)) + " — try refreshing.</span>";
   }
@@ -245,45 +241,38 @@ async function loadAgents(total) {
   body.innerHTML = rows.join("");
 }
 
-const blockTimeCache = {};
-async function blockTime(blockHex) {
-  if (!(blockHex in blockTimeCache)) {
-    const b = await rpc("eth_getBlockByNumber", [blockHex, false]);
-    blockTimeCache[blockHex] = b ? Number(BigInt(b.timestamp)) : 0;
-  }
-  return blockTimeCache[blockHex];
-}
-
-async function loadTrail() {
+// Trail is rebuilt from contract state via eth_call only (getAgents/getProfile/getAttestation) —
+// public BSC RPCs throttle eth_getLogs scans too aggressively for a static page to rely on.
+async function loadTrail(totalAgents, totalAtts) {
   const body = $("trailBody");
-  body.innerHTML = '<tr><td colspan="4" class="note">Loading events…</td></tr>';
+  body.innerHTML = '<tr><td colspan="4" class="note">Loading activity…</td></tr>';
   try {
-    const logs = await rpc("eth_getLogs", [{ address: CONTRACT, fromBlock: "0x" + DEPLOY_BLOCK.toString(16), toBlock: "latest",
-      topics: [[TOPIC.registered, TOPIC.updated, TOPIC.attested]] }]);
-    if (!logs.length) { body.innerHTML = '<tr><td colspan="4" class="note">No events yet.</td></tr>'; return; }
-    const recent = logs.slice(-25).reverse();
-    const rows = [];
-    for (const log of recent) {
-      const t = await blockTime(log.blockNumber);
-      const when = t ? new Date(t * 1000).toISOString().replace("T", " ").slice(0, 16) : ("block " + parseInt(log.blockNumber, 16));
-      let ev = "", detail = "";
-      if (log.topics[0] === TOPIC.registered || log.topics[0] === TOPIC.updated) {
-        const who = asAddr(log.topics[1]);
-        ev = log.topics[0] === TOPIC.registered ? "AgentRegistered" : "ProfileUpdated";
-        let nm = "";
-        try { nm = decodeString(log.data, 0); } catch (e) { /* name is display-only */ }
-        detail = "<span class='mono'>" + short(who) + "</span> — " + esc(nm);
-      } else {
-        const fromA = asAddr(log.topics[1]), toA = asAddr(log.topics[2]);
-        ev = "Attested";
-        detail = "<span class='mono'>" + short(fromA) + "</span> vouched for <span class='mono'>" + short(toA) + "</span> · tag <span class='mono'>" + log.topics[3].slice(0, 10) + "…</span>";
+    const items = [];
+    if (totalAgents > 0) {
+      const listHex = await call(SEL.getAgents + padUint(0) + padUint(Math.min(totalAgents, 200)));
+      const n = Number(asUint(word(listHex, 1)));
+      for (let i = 0; i < n; i++) {
+        const addr = asAddr(word(listHex, 2 + i));
+        const p = await call(SEL.getProfile + padAddr(addr));
+        items.push({ t: Number(asUint(word(p, 3))), ev: "AgentRegistered",
+          detail: "<span class='mono'>" + short(addr) + "</span> — " + esc(decodeString(p, 0)), link: scan(addr), linkText: short(addr) });
       }
-      rows.push("<tr><td>" + when + "</td><td>" + ev + "</td><td>" + detail + "</td>" +
-        "<td class='mono'><a href='" + scanTx(log.transactionHash) + "' target='_blank' rel='noopener'>" + short(log.transactionHash) + "</a></td></tr>");
     }
-    body.innerHTML = rows.join("");
+    const fromIdx = Math.max(0, totalAtts - 25);
+    for (let i = fromIdx; i < totalAtts; i++) {
+      const a = await call(SEL.getAttestation + padUint(i));
+      const fromA = asAddr(word(a, 0)), toA = asAddr(word(a, 1));
+      items.push({ t: Number(asUint(word(a, 3))), ev: "Attested",
+        detail: "<span class='mono'>" + short(fromA) + "</span> vouched for <span class='mono'>" + short(toA) + "</span> · tag <span class='mono'>" + "0x" + word(a, 2).slice(0, 8) + "…</span>",
+        link: scan(toA), linkText: short(toA) });
+    }
+    if (!items.length) { body.innerHTML = '<tr><td colspan="4" class="note">No activity yet.</td></tr>'; return; }
+    items.sort((x, y) => y.t - x.t);
+    body.innerHTML = items.slice(0, 25).map(it =>
+      "<tr><td>" + (it.t ? new Date(it.t * 1000).toISOString().replace("T", " ").slice(0, 16) : "–") + "</td><td>" + it.ev + "</td><td>" + it.detail + "</td>" +
+      "<td class='mono'><a href='" + it.link + "' target='_blank' rel='noopener'>" + it.linkText + "</a></td></tr>").join("");
   } catch (e) {
-    body.innerHTML = '<tr><td colspan="4" class="err">Event read failed: ' + esc(String(e.message || e)) + "</td></tr>";
+    body.innerHTML = '<tr><td colspan="4" class="err">Activity read failed: ' + esc(String(e.message || e)) + "</td></tr>";
   }
 }
 
