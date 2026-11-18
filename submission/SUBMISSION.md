@@ -68,8 +68,8 @@ A single, dependency-free smart contract on BNB Chain:
   Agentic Wallet): https://bscscan.com/tx/0xe15cdab66f800863b617729d540ebf01d475519c8e5539f26db60f53e80e65af
 - First registration (fufufafa22.ai, agent #1):
   https://bscscan.com/tx/0x1e19313a75f71d373153b2e3fd233fec830e45a28fc0f9e328403777143523a4
-- Judge dashboard (read-only): {{DASHBOARD_LINK}}
-- Source code: {{REPO_LINK}}
+- Dashboard + join page (live counters, wallet register/attest): https://dordador.github.io/agentattest/
+- Source code: https://github.com/Dordador/agentattest
 - Demo video: {{VIDEO_LINK}}
 - Integration kit: `docs/INTEGRATION-KIT.md` in the repo
 
@@ -92,6 +92,8 @@ Agent Cards, and an agent-to-agent task marketplace. The project is dogfooded by
       cannot broadcast a native creation tx. Contract: 0x29f924c94b8cbb6c8963cfb23f73b7d399678280
 - [x] Verify source — Sourcify exact_match (creation + runtime), 2026-11-18
 - [x] Register fufufafa22.ai as agent #1 (uniqueInteractors = 1, confirmed on-chain)
-- [ ] Host dashboard + repo publicly; fill in the remaining `{{…}}` links (dashboard / repo / video)
+- [x] Host dashboard + repo publicly — DONE 2026-11-19: dashboard on GitHub Pages
+      (https://dordador.github.io/agentattest/, register + attest wallet flows live, counters
+      read from chain), repo public at https://github.com/Dordador/agentattest. Video link still pending.
 - [ ] Drive to ≥ 30 interacting Agent ID addresses (plan in STATUS.md)
 - [ ] Submit the form on the official campaign page before 9 Dec 2026 08:00 UTC
